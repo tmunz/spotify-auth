@@ -1,0 +1,45 @@
+{
+  "version": 2,
+  "name": "spotify-auth-server",
+  "builds": [
+    {
+      "src": "index.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "public/**/*",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/health",
+      "dest": "index.js"
+    },
+    {
+      "src": "/login",
+      "dest": "index.js"
+    },
+    {
+      "src": "/callback",
+      "dest": "index.js"
+    },
+    {
+      "src": "/refresh_token",
+      "dest": "index.js"
+    },
+    {
+      "src": "/public/(.*)",
+      "dest": "public/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "index.js"
+    }
+  ],
+  "env": {
+    "CLIENT_ID": "@client_id",
+    "CLIENT_SECRET": "@client_secret",
+    "REDIRECT_URI": "@redirect_uri"
+  }
+}
