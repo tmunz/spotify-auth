@@ -1,0 +1,13 @@
+# Add Docker-related files to .dockerignore
+node_modules
+npm-debug.log
+.env
+.env.*
+.git
+.gitignore
+README.md
+DEPLOYMENT.md
+.github
+Dockerfile*
+docker-compose*
+.dockerignore
