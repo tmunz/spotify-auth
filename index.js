@@ -71,7 +71,7 @@ app.get('/login', function(req, res) {
   res.cookie('origin_url', originUrl);
   res.cookie(stateKey, state);
 
-  var scope = 'user-read-private user-read-email';
+  var scope = 'user-read-private user-read-email streaming user-read-playback-state user-modify-playback-state';
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: client_id,
