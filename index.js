@@ -10,12 +10,11 @@
 // Load environment variables from .env file
 require('dotenv').config();
 
-var express = require('express'); // Express web server framework
-var axios = require('axios'); // HTTP client library
+var express = require('express');
+var axios = require('axios');
 var cors = require('cors');
 var cookieParser = require('cookie-parser');
 
-// Environment variable validation
 const requiredEnvVars = ['CLIENT_ID', 'CLIENT_SECRET', 'REDIRECT_URI'];
 const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
 
@@ -25,9 +24,9 @@ if (missingVars.length > 0) {
   process.exit(1);
 }
 
-var client_id = process.env.CLIENT_ID; // Your client id
-var client_secret = process.env.CLIENT_SECRET; // Your secret
-var redirect_uri = process.env.REDIRECT_URI; // Your redirect uri
+var client_id = process.env.CLIENT_ID;
+var client_secret = process.env.CLIENT_SECRET;
+var redirect_uri = process.env.REDIRECT_URI;
 
 /**
  * Generates a random string containing numbers and letters
@@ -52,7 +51,6 @@ app.use(express.static(__dirname + '/public'))
    .use(cors())
    .use(cookieParser());
 
-// Health check endpoint
 app.get('/health', function(req, res) {
   res.status(200).json({ 
     status: 'OK', 
@@ -61,7 +59,6 @@ app.get('/health', function(req, res) {
   });
 });
 
-// Root endpoint
 app.get('/', function(req, res) {
   res.sendFile(__dirname + '/public/index.html');
 });
@@ -69,9 +66,11 @@ app.get('/', function(req, res) {
 app.get('/login', function(req, res) {
 
   var state = generateRandomString(16);
+  
+  const originUrl = req.query.origin || 'http://localhost:8888';
+  res.cookie('origin_url', originUrl);
   res.cookie(stateKey, state);
 
-  // your application requests authorization
   var scope = 'user-read-private user-read-email';
   const params = new URLSearchParams({
     response_type: 'code',
@@ -84,9 +83,6 @@ app.get('/login', function(req, res) {
 });
 
 app.get('/callback', function(req, res) {
-
-  // your application requests refresh and access tokens
-  // after checking the state parameter
 
   var code = req.query.code || null;
   var state = req.query.state || null;
@@ -115,7 +111,6 @@ app.get('/callback', function(req, res) {
       const access_token = body.access_token;
       const refresh_token = body.refresh_token;
 
-      // use the access token to access the Spotify Web API
       axios.get('https://api.spotify.com/v1/me', {
         headers: { 'Authorization': 'Bearer ' + access_token }
       }).then(userResponse => {
@@ -124,23 +119,27 @@ app.get('/callback', function(req, res) {
         console.error('Error fetching user data:', err.message);
       });
 
-      // we can also pass the token to the browser to make requests from there
       const successParams = new URLSearchParams({
         access_token: access_token,
         refresh_token: refresh_token
       });
-      res.redirect('/#' + successParams.toString());
+      
+      // Get the origin URL from cookies
+      const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
+      res.clearCookie('origin_url');
+      res.redirect(originUrl + '/#' + successParams.toString());
     }).catch(error => {
       console.error('Error during token exchange:', error.message);
       const errorParams = new URLSearchParams({ error: 'invalid_token' });
-      res.redirect('/#' + errorParams.toString());
+      const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
+      res.clearCookie('origin_url');
+      res.redirect(originUrl + '/#' + errorParams.toString());
     });
   }
 });
 
 app.get('/refresh_token', function(req, res) {
 
-  // requesting access token from refresh token
   const refresh_token = req.query.refresh_token;
   const formData = new URLSearchParams({
     grant_type: 'refresh_token',
