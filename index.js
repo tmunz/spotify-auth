@@ -85,13 +85,11 @@ app.get('/login', function(req, res) {
   var state = generateRandomString(16);
   
   const originUrl = req.query.origin || 'http://localhost:8888';
-  // Ensure we always request the streaming scope required for Web Playback SDK
   const scope = req.query.scopes || 'user-read-private user-read-email user-read-playback-state user-modify-playback-state streaming';
 
   console.log('Login request - Origin:', originUrl);
   console.log('Login request - Requested scopes:', scope);
 
-  // Validate origin URL
   if (!isAllowedOrigin(originUrl)) {
     console.error('Unauthorized origin URL:', originUrl);
     return res.status(403).json({ 
@@ -176,7 +174,6 @@ app.get('/callback', function(req, res) {
         expires_in: expires_in // Include expires_in so client can schedule refresh
       });
       
-      // Get the origin URL from cookies
       const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
       res.clearCookie('origin_url');
       res.clearCookie('requested_scopes');
@@ -235,7 +232,6 @@ app.get('/refresh_token', function(req, res) {
       'expires_in': expires_in
     };
 
-    // Include new refresh token if Spotify provided one
     if (new_refresh_token) {
       responseData.refresh_token = new_refresh_token;
       console.log('New refresh token provided by Spotify');
@@ -251,7 +247,7 @@ app.get('/refresh_token', function(req, res) {
   });
 });
 
-// Alias for /refresh_token endpoint (for backwards compatibility)
+
 app.get('/refresh', function(req, res) {
   // Forward to /refresh_token endpoint
   req.url = '/refresh_token';
