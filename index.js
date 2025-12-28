@@ -117,7 +117,12 @@ app.get('/callback', function(req, res) {
 
   if (state === null || state !== storedState) {
     const errorParams = new URLSearchParams({ error: 'state_mismatch' });
-    res.redirect('/#' + errorParams.toString());
+    const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
+    res.clearCookie(stateKey);
+    res.clearCookie('origin_url');
+    
+    const redirectUrl = buildRedirectUrl(originUrl, errorParams);
+    res.redirect(redirectUrl);
   } else {
     res.clearCookie(stateKey);
     const formData = new URLSearchParams({
