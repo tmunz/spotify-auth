@@ -55,13 +55,9 @@ var generateRandomString = function(length) {
   return text;
 };
 
-var buildRedirectUrl = function(originUrl, originHash, params) {
+var buildRedirectUrl = function(originUrl, params) {
   const cleanOriginUrl = originUrl.replace(/\/$/, '');
-  if (originHash) {
-    return cleanOriginUrl + '/#' + originHash + '&' + params.toString();
-  } else {
-    return cleanOriginUrl + '/#' + params.toString();
-  }
+  return cleanOriginUrl + '/#' + params.toString();
 };
 
 var stateKey = 'spotify_auth_state';
@@ -89,7 +85,6 @@ app.get('/login', function(req, res) {
   var state = generateRandomString(16);
   
   const originUrl = req.query.origin || 'http://localhost:8888';
-  const originHash = req.query.hash || '';
   const scope = req.query.scopes || 'user-read-private user-read-email';
 
   // Validate origin URL
@@ -102,7 +97,6 @@ app.get('/login', function(req, res) {
   }
   
   res.cookie('origin_url', originUrl);
-  res.cookie('origin_hash', originHash);
   res.cookie(stateKey, state);
   
   const params = new URLSearchParams({
@@ -157,23 +151,19 @@ app.get('/callback', function(req, res) {
         refresh_token: refresh_token
       });
       
-      // Get the origin URL and hash from cookies
+      // Get the origin URL from cookies
       const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
-      const originHash = req.cookies ? req.cookies['origin_hash'] : '';
       res.clearCookie('origin_url');
-      res.clearCookie('origin_hash');
       
-      const redirectUrl = buildRedirectUrl(originUrl, originHash, successParams);
+      const redirectUrl = buildRedirectUrl(originUrl, successParams);
       res.redirect(redirectUrl);
     }).catch(error => {
       console.error('Error during token exchange:', error.message);
       const errorParams = new URLSearchParams({ error: 'invalid_token' });
       const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
-      const originHash = req.cookies ? req.cookies['origin_hash'] : '';
       res.clearCookie('origin_url');
-      res.clearCookie('origin_hash');
       
-      const redirectUrl = buildRedirectUrl(originUrl, originHash, errorParams);
+      const redirectUrl = buildRedirectUrl(originUrl, errorParams);
       res.redirect(redirectUrl);
     });
   }
