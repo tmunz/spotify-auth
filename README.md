@@ -80,9 +80,9 @@ For automated deployment with environment variable management, the included GitH
 ## API Endpoints
 
 - `GET /` - Serves the main authentication page
-- `GET /login?origin=URL&scopes=SCOPES` - Initiates Spotify OAuth flow with optional origin URL, and custom scopes
+- `GET /login?origin=URL` - Initiates Spotify OAuth flow with optional origin URL
   - `origin` (optional) - The URL to redirect back to after authentication
-  - `scopes` (optional) - Comma-separated list of Spotify scopes (defaults to: `user-read-private user-read-email`)
+  - Scopes are hardcoded: `user-read-private user-read-email user-read-playback-state user-modify-playback-state streaming`
 - `GET /callback` - Handles OAuth callback from Spotify
 - `GET /refresh_token?refresh_token=TOKEN` - Refreshes an access token
 - `GET /health` - Health check endpoint
@@ -97,29 +97,35 @@ After deployment to Vercel, you can use this server from your web application:
 // Redirect user to login
 window.location.href = 'https://your-project.vercel.app/login';
 
+// Handle the callback (tokens will be in URL hash)
+const urlParams = new URLSearchParams(window.location.hash.substring(1));
 const accessToken = urlParams.get('access_token');
 const refreshToken = urlParams.get('refresh_token');
 ```
 
+### With Custom Origin
 
-### With Custom Scopes
-
-Request specific Spotify permissions by passing custom scopes:
+Redirect back to a specific URL after authentication:
 
 ```javascript
-// Define the scopes you need
-const scopes = 'user-read-playback-state,user-modify-playback-state,streaming,user-library-read';
+// Specify where to redirect after authentication
+const origin = 'https://myapp.com';
+window.location.href = `https://your-project.vercel.app/login?origin=${encodeURIComponent(origin)}`;
 
-// Redirect to login with custom scopes
-window.location.href = `https://your-project.vercel.app/login?scopes=${encodeURIComponent(scopes)}`;
-
+// After authentication, user will be redirected to:
+// https://myapp.com/#access_token=...&refresh_token=...
 ```
 
-**Available Spotify Scopes:** See [Spotify Authorization Scopes](https://developer.spotify.com/documentation/web-api/concepts/scopes) for a full list.
+### Granted Scopes
 
-**Default Scopes (if not specified):**
+The server requests these Spotify permissions:
 - `user-read-private` - Read user's subscription details
 - `user-read-email` - Read user's email address
+- `user-read-playback-state` - Read user's playback state
+- `user-modify-playback-state` - Control playback
+- `streaming` - Control playback on Spotify clients
+
+**For more scopes:** See [Spotify Authorization Scopes](https://developer.spotify.com/documentation/web-api/concepts/scopes). To change scopes, modify the hardcoded value in `index.js`.
 
 ### Security: Allowed Origins
 

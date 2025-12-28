@@ -85,10 +85,10 @@ app.get('/login', function(req, res) {
   var state = generateRandomString(16);
   
   const originUrl = req.query.origin || 'http://localhost:8888';
-  const scope = req.query.scopes || 'user-read-private user-read-email user-read-playback-state user-modify-playback-state streaming';
+  const scope = 'user-read-private user-read-email user-read-playback-state user-modify-playback-state streaming';
 
   console.log('Login request - Origin:', originUrl);
-  console.log('Login request - Requested scopes:', scope);
+  console.log('Login request - Scopes:', scope);
 
   if (!isAllowedOrigin(originUrl)) {
     console.error('Unauthorized origin URL:', originUrl);
@@ -99,7 +99,6 @@ app.get('/login', function(req, res) {
   }
   
   res.cookie('origin_url', originUrl);
-  res.cookie('requested_scopes', scope); // Store requested scopes for verification in callback
   res.cookie(stateKey, state);
   
   const params = new URLSearchParams({
@@ -126,17 +125,11 @@ app.get('/callback', function(req, res) {
     const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
     res.clearCookie(stateKey);
     res.clearCookie('origin_url');
-    res.clearCookie('requested_scopes');
     
     const redirectUrl = buildRedirectUrl(originUrl, errorParams);
     res.redirect(redirectUrl);
   } else {
     res.clearCookie(stateKey);
-    const requestedScopes = req.cookies ? req.cookies['requested_scopes'] : null;
-    
-    if (requestedScopes) {
-      console.log('Requested scopes from cookie:', requestedScopes);
-    }
     
     const formData = new URLSearchParams({
       code: code,
@@ -176,7 +169,6 @@ app.get('/callback', function(req, res) {
       
       const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
       res.clearCookie('origin_url');
-      res.clearCookie('requested_scopes');
       
       const redirectUrl = buildRedirectUrl(originUrl, successParams);
       console.log('Redirecting to:', redirectUrl.substring(0, 100) + '...');
@@ -186,7 +178,6 @@ app.get('/callback', function(req, res) {
       const errorParams = new URLSearchParams({ error: 'invalid_token' });
       const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
       res.clearCookie('origin_url');
-      res.clearCookie('requested_scopes');
       
       const redirectUrl = buildRedirectUrl(originUrl, errorParams);
       res.redirect(redirectUrl);
