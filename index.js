@@ -35,10 +35,22 @@ const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
 var isAllowedOrigin = function(url) {
   try {
     const urlObj = new URL(url);
-    const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
+    const incomingUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
+    const incomingBase = `${urlObj.protocol}//${urlObj.host}`;
+    
     return ALLOWED_ORIGINS.some(allowed => {
       const allowedObj = new URL(allowed);
-      return `${allowedObj.protocol}//${allowedObj.host}` === baseUrl;
+      const allowedBase = `${allowedObj.protocol}//${allowedObj.host}`;
+      const allowedPath = allowedObj.pathname;
+      
+      if (allowedPath && allowedPath !== '/') {
+        const allowedFullPath = `${allowedBase}${allowedPath}`;
+        const normalizedAllowed = allowedFullPath.replace(/\/$/, '');
+        const normalizedIncoming = incomingUrl.replace(/\/$/, '');
+        return normalizedIncoming === normalizedAllowed || normalizedIncoming.startsWith(normalizedAllowed + '/');
+      }
+      
+      return incomingBase === allowedBase;
     });
   } catch (e) {
     return false;
