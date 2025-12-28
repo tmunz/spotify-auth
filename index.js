@@ -30,7 +30,7 @@ var redirect_uri = process.env.REDIRECT_URI;
 
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS 
   ? process.env.ALLOWED_ORIGINS.split(',').map(url => url.trim())
-  : ['http://localhost:8888', 'http://localhost:3000'];
+  : ['http://localhost:8888'];
 
 var isAllowedOrigin = function(url) {
   try {
@@ -137,11 +137,9 @@ app.get('/login', function(req, res) {
       error: 'forbidden', 
       message: 'Origin URL is not allowed',
       attempted_origin: originUrl,
-      allowed_origins: ALLOWED_ORIGINS
     });
   }
   
-  // Store origin with additional security marker
   res.cookie('origin_url', originUrl, { 
     httpOnly: true, 
     secure: process.env.NODE_ENV === 'production',

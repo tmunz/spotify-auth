@@ -57,6 +57,8 @@ Vercel provides the best GitHub integration for hosting Node.js applications wit
    - `CLIENT_ID` - Your Spotify client ID
    - `CLIENT_SECRET` - Your Spotify client secret
    - `REDIRECT_URI` - `https://your-project.vercel.app/callback`
+   - `ALLOWED_ORIGINS` - Comma-separated list of allowed domains (e.g., `https://your-project.com`)
+   - `NODE_ENV` - Set to `production` for enhanced security
 
 3. **Deploy:** Every push to main automatically deploys!
 
@@ -80,8 +82,9 @@ For automated deployment with environment variable management, the included GitH
 ## API Endpoints
 
 - `GET /` - Serves the main authentication page
-- `GET /login?origin=URL` - Initiates Spotify OAuth flow with optional origin URL
-  - `origin` (optional) - The URL to redirect back to after authentication
+- `GET /login` - Initiates Spotify OAuth flow
+  - **Security:** Origin is automatically detected from the `Referer` header
+  - In production, requests without a valid Referer are rejected
   - Scopes are hardcoded: `user-read-private user-read-email user-read-playback-state user-modify-playback-state streaming`
 - `GET /callback` - Handles OAuth callback from Spotify
 - `GET /refresh_token?refresh_token=TOKEN` - Refreshes an access token
@@ -93,29 +96,37 @@ After deployment to Vercel, you can use this server from your web application:
 
 ### Basic Usage
 
-```javascript
-// Redirect user to login
-window.location.href = 'https://your-project.vercel.app/login';
+**Important:** Users must initiate login by clicking a button/link on your website. The server automatically detects the origin from the browser's `Referer` header for security.
+
+```html
+<!-- In your HTML -->
+<button onclick="loginWithSpotify()">Login with Spotify</button>
+
+<script>
+function loginWithSpotify() {
+  window.location.href = 'https://your-project.vercel.app/login';
+}
 
 // Handle the callback (tokens will be in URL hash)
-const urlParams = new URLSearchParams(window.location.hash.substring(1));
-const accessToken = urlParams.get('access_token');
-const refreshToken = urlParams.get('refresh_token');
+window.addEventListener('load', function() {
+  const urlParams = new URLSearchParams(window.location.hash.substring(1));
+  const accessToken = urlParams.get('access_token');
+  const refreshToken = urlParams.get('refresh_token');
+  const expiresIn = urlParams.get('expires_in');
+  
+  if (accessToken) {
+    // User is authenticated, use the access token
+    console.log('Authenticated with Spotify!');
+    // Store tokens securely and make Spotify API calls
+  }
+  
+  const error = urlParams.get('error');
+  if (error) {
+    console.error('Authentication error:', error);
+  }
+});
+</script>
 ```
-
-### With Custom Origin
-
-Redirect back to a specific URL after authentication:
-
-```javascript
-// Specify where to redirect after authentication
-const origin = 'https://myapp.com';
-window.location.href = `https://your-project.vercel.app/login?origin=${encodeURIComponent(origin)}`;
-
-// After authentication, user will be redirected to:
-// https://myapp.com/#access_token=...&refresh_token=...
-```
-
 ### Granted Scopes
 
 The server requests these Spotify permissions:
@@ -129,13 +140,23 @@ The server requests these Spotify permissions:
 
 ### Security: Allowed Origins
 
-For security, only URLs from allowed origins can be used for redirects. Configure allowed origins in your environment variables:
+**Critical Security Feature:** For security, the server uses the `Referer` header to determine where to redirect tokens. Only domains in your `ALLOWED_ORIGINS` whitelist are accepted.
 
 ```bash
-ALLOWED_ORIGINS=http://localhost:8888,http://localhost:3000,https://yourdomain.com
+ALLOWED_ORIGINS=http://localhost:8888,https://yourdomain.com
 ```
 
-If not set, defaults to `http://localhost:8888` and `http://localhost:3000`.
+#### Production Security
+
+When `NODE_ENV=production`:
+- ✅ Origin is **only** determined from the `Referer` header (secure)
+- ✅ Query parameters are ignored (prevents phishing attacks)
+- ✅ Requests without a valid Referer are rejected
+- ✅ Only whitelisted domains can receive tokens
+
+**Default (development mode):**
+- Query parameters are allowed as fallback for testing
+- Default fallback to `localhost:8888`
 
 ## Environment Variables
 
@@ -143,17 +164,21 @@ If not set, defaults to `http://localhost:8888` and `http://localhost:3000`.
 |----------|-------------|----------|
 | `CLIENT_ID` | Spotify application client ID | Yes |
 | `CLIENT_SECRET` | Spotify application client secret | Yes |
-| `REDIRECT_URI` | OAuth callback URL | Yes |
-| `ALLOWED_ORIGINS` | Comma-separated list of allowed origin URLs for redirects | No |
+| `REDIRECT_URI` | OAuth callback URL (e.g., `https://your-project.vercel.app/callback`) | Yes |
+| `ALLOWED_ORIGINS` | Comma-separated list of allowed origin URLs for enhanced security (disables fallbacks) | Recommended |
 | `PORT` | Server port (default: 5000) | No |
-| `NODE_ENV` | Environment mode | No |
+| `HOST` | Server host (default: localhost) | No |
+
+\* *If not set, defaults to `http://localhost:8888,http://localhost:3000`*
 
 ## Security Notes
 
 - Never expose your `CLIENT_SECRET` in client-side code
-- Use HTTPS in production
-- Validate the `state` parameter to prevent CSRF attacks
-- Store tokens securely in your client application
+- Always use HTTPS in production
+- Store tokens securely (consider using sessionStorage instead of localStorage)
+- Set `NODE_ENV=production` in your deployment
+- Implement token refresh before expiration (use `expires_in` value)
+- Validate tokens on your backend before making sensitive operations
 
 ## License
 
