@@ -47,12 +47,15 @@ var isAllowedOrigin = function(url) {
         const allowedFullPath = `${allowedBase}${allowedPath}`;
         const normalizedAllowed = allowedFullPath.replace(/\/$/, '');
         const normalizedIncoming = incomingUrl.replace(/\/$/, '');
-        return normalizedIncoming === normalizedAllowed || normalizedIncoming.startsWith(normalizedAllowed + '/');
+        
+        return normalizedIncoming === normalizedAllowed || 
+               normalizedIncoming.startsWith(normalizedAllowed + '/');
       }
       
       return incomingBase === allowedBase;
     });
   } catch (e) {
+    console.error('Error validating origin:', e.message);
     return false;
   }
 };
@@ -93,41 +96,25 @@ app.get('/', function(req, res) {
 });
 
 app.get('/login', function(req, res) {
-
-  var state = generateRandomString(16);
   
   const isProduction = process.env.NODE_ENV === 'production';
-  const referer = req.headers.referer || req.headers.referrer;
   let originUrl = null;
   
-  if (referer) {
-    try {
-      const refererUrl = new URL(referer);
-      originUrl = `${refererUrl.protocol}//${refererUrl.host}${refererUrl.pathname}`;
-    } catch (e) {
-      console.error('Invalid referer:', referer);
-    }
+  if (req.query.origin) {
+    originUrl = decodeURIComponent(req.query.origin);
   } else if (isProduction) {
-    console.error('Login rejected - No Referer header in production');
-    return res.status(403).json({ 
-      error: 'forbidden', 
-      message: 'Login must be initiated from an allowed origin. No Referer header detected.',
-      hint: 'Make sure you are clicking the login button from your website, not accessing the URL directly.'
+    console.error('Login rejected - No origin parameter provided in production');
+    return res.status(400).json({ 
+      error: 'bad_request', 
+      message: 'Origin parameter is required. Please specify ?origin=<your-app-url>',
+      hint: 'Example: /login?origin=https://yourapp.com'
     });
   } else {
-    if (req.query.origin) {
-      originUrl = decodeURIComponent(req.query.origin);
-      console.warn('[DEV ONLY] Using origin from query parameter. Origin:', originUrl);
-    } else {
-      originUrl = 'http://localhost:8888';
-      console.warn('[DEV ONLY] Using default origin:', originUrl);
-    }
+    originUrl = 'http://localhost:8888';
+    console.warn('[DEV ONLY] Using default origin:', originUrl);
   }
-  
-  const scope = 'user-read-private user-read-email user-read-playback-state user-modify-playback-state streaming';
 
   console.log('Login request - Origin:', originUrl);
-  console.log('Login request - Referer:', referer || 'none');
   console.log('Login request - Environment:', isProduction ? 'production' : 'development');
 
   if (!isAllowedOrigin(originUrl)) {
@@ -137,19 +124,25 @@ app.get('/login', function(req, res) {
       error: 'forbidden', 
       message: 'Origin URL is not allowed',
       attempted_origin: originUrl,
+      allowed_origins: ALLOWED_ORIGINS
     });
   }
   
-  res.cookie('origin_url', originUrl, { 
-    httpOnly: true, 
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax'
-  });
-  res.cookie(stateKey, state, {
+  const randomState = generateRandomString(16);
+  const stateData = {
+    random: randomState,
+    origin: originUrl
+  };
+  const state = Buffer.from(JSON.stringify(stateData)).toString('base64');
+  
+  res.cookie(stateKey, randomState, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax'
+    sameSite: 'lax',
+    maxAge: 600000
   });
+  
+  const scope = 'user-read-private user-read-email user-read-playback-state user-modify-playback-state streaming';
   
   const params = new URLSearchParams({
     response_type: 'code',
@@ -160,7 +153,7 @@ app.get('/login', function(req, res) {
   });
   
   const spotifyAuthUrl = 'https://accounts.spotify.com/authorize?' + params.toString();
-  console.log('Redirecting to Spotify auth:', spotifyAuthUrl);
+  console.log('Redirecting to Spotify auth with encoded state');
   res.redirect(spotifyAuthUrl);
 });
 
@@ -168,24 +161,36 @@ app.get('/callback', function(req, res) {
 
   var code = req.query.code || null;
   var state = req.query.state || null;
-  var storedState = req.cookies ? req.cookies[stateKey] : null;
-  const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
-
-  // Validate origin URL again for security (in case of cookie tampering)
+  var storedRandomState = req.cookies ? req.cookies[stateKey] : null;
+  
+  let stateData = null;
+  let originUrl = null;
+  
+  try {
+    const decodedState = Buffer.from(state, 'base64').toString('utf-8');
+    stateData = JSON.parse(decodedState);
+    originUrl = stateData.origin;
+  } catch (e) {
+    console.error('Failed to decode state parameter:', e.message);
+    res.clearCookie(stateKey);
+    return res.status(400).json({ 
+      error: 'invalid_state', 
+      message: 'Invalid state parameter' 
+    });
+  }
   if (!isAllowedOrigin(originUrl)) {
     console.error('Callback - Invalid origin URL:', originUrl);
     res.clearCookie(stateKey);
-    res.clearCookie('origin_url');
     return res.status(403).json({ 
       error: 'forbidden', 
       message: 'Origin URL is not allowed' 
     });
   }
 
-  if (state === null || state !== storedState) {
+  if (state === null || stateData.random !== storedRandomState) {
+    console.error('State mismatch - stored:', storedRandomState, 'received:', stateData.random);
     const errorParams = new URLSearchParams({ error: 'state_mismatch' });
     res.clearCookie(stateKey);
-    res.clearCookie('origin_url');
     
     const redirectUrl = buildRedirectUrl(originUrl, errorParams);
     res.redirect(redirectUrl);
@@ -209,7 +214,7 @@ app.get('/callback', function(req, res) {
       const body = response.data;
       const access_token = body.access_token;
       const refresh_token = body.refresh_token;
-      const expires_in = body.expires_in; // Spotify returns this in seconds
+      const expires_in = body.expires_in;
 
       console.log('Token exchange successful');
       console.log('Access token expires in:', expires_in, 'seconds');
@@ -225,10 +230,8 @@ app.get('/callback', function(req, res) {
       const successParams = new URLSearchParams({
         access_token: access_token,
         refresh_token: refresh_token,
-        expires_in: expires_in // Include expires_in so client can schedule refresh
+        expires_in: expires_in
       });
-      
-      res.clearCookie('origin_url');
       
       const redirectUrl = buildRedirectUrl(originUrl, successParams);
       console.log('Redirecting to:', redirectUrl.substring(0, 100) + '...');
@@ -236,7 +239,6 @@ app.get('/callback', function(req, res) {
     }).catch(error => {
       console.error('Error during token exchange:', error.message);
       const errorParams = new URLSearchParams({ error: 'invalid_token' });
-      res.clearCookie('origin_url');
       
       const redirectUrl = buildRedirectUrl(originUrl, errorParams);
       res.redirect(redirectUrl);
@@ -272,7 +274,7 @@ app.get('/refresh_token', function(req, res) {
   }).then(response => {
     const body = response.data;
     const access_token = body.access_token;
-    const new_refresh_token = body.refresh_token; // Spotify may return a new refresh token
+    const new_refresh_token = body.refresh_token;
     const expires_in = body.expires_in;
 
     console.log('Token refresh successful, expires in:', expires_in, 'seconds');
@@ -299,7 +301,6 @@ app.get('/refresh_token', function(req, res) {
 
 
 app.get('/refresh', function(req, res) {
-  // Forward to /refresh_token endpoint
   req.url = '/refresh_token';
   return app._router.handle(req, res, () => {});
 });
