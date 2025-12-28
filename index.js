@@ -96,22 +96,62 @@ app.get('/login', function(req, res) {
 
   var state = generateRandomString(16);
   
-  const originUrl = req.query.origin || 'http://localhost:8888';
+  const isProduction = process.env.NODE_ENV === 'production';
+  const referer = req.headers.referer || req.headers.referrer;
+  let originUrl = null;
+  
+  if (referer) {
+    try {
+      const refererUrl = new URL(referer);
+      originUrl = `${refererUrl.protocol}//${refererUrl.host}${refererUrl.pathname}`;
+    } catch (e) {
+      console.error('Invalid referer:', referer);
+    }
+  } else if (isProduction) {
+    console.error('Login rejected - No Referer header in production');
+    return res.status(403).json({ 
+      error: 'forbidden', 
+      message: 'Login must be initiated from an allowed origin. No Referer header detected.',
+      hint: 'Make sure you are clicking the login button from your website, not accessing the URL directly.'
+    });
+  } else {
+    if (req.query.origin) {
+      originUrl = decodeURIComponent(req.query.origin);
+      console.warn('[DEV ONLY] Using origin from query parameter. Origin:', originUrl);
+    } else {
+      originUrl = 'http://localhost:8888';
+      console.warn('[DEV ONLY] Using default origin:', originUrl);
+    }
+  }
+  
   const scope = 'user-read-private user-read-email user-read-playback-state user-modify-playback-state streaming';
 
   console.log('Login request - Origin:', originUrl);
-  console.log('Login request - Scopes:', scope);
+  console.log('Login request - Referer:', referer || 'none');
+  console.log('Login request - Environment:', isProduction ? 'production' : 'development');
 
   if (!isAllowedOrigin(originUrl)) {
     console.error('Unauthorized origin URL:', originUrl);
+    console.error('Allowed origins:', ALLOWED_ORIGINS);
     return res.status(403).json({ 
       error: 'forbidden', 
-      message: 'Origin URL is not allowed' 
+      message: 'Origin URL is not allowed',
+      attempted_origin: originUrl,
+      allowed_origins: ALLOWED_ORIGINS
     });
   }
   
-  res.cookie('origin_url', originUrl);
-  res.cookie(stateKey, state);
+  // Store origin with additional security marker
+  res.cookie('origin_url', originUrl, { 
+    httpOnly: true, 
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax'
+  });
+  res.cookie(stateKey, state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax'
+  });
   
   const params = new URLSearchParams({
     response_type: 'code',
@@ -131,10 +171,21 @@ app.get('/callback', function(req, res) {
   var code = req.query.code || null;
   var state = req.query.state || null;
   var storedState = req.cookies ? req.cookies[stateKey] : null;
+  const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
+
+  // Validate origin URL again for security (in case of cookie tampering)
+  if (!isAllowedOrigin(originUrl)) {
+    console.error('Callback - Invalid origin URL:', originUrl);
+    res.clearCookie(stateKey);
+    res.clearCookie('origin_url');
+    return res.status(403).json({ 
+      error: 'forbidden', 
+      message: 'Origin URL is not allowed' 
+    });
+  }
 
   if (state === null || state !== storedState) {
     const errorParams = new URLSearchParams({ error: 'state_mismatch' });
-    const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
     res.clearCookie(stateKey);
     res.clearCookie('origin_url');
     
@@ -179,7 +230,6 @@ app.get('/callback', function(req, res) {
         expires_in: expires_in // Include expires_in so client can schedule refresh
       });
       
-      const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
       res.clearCookie('origin_url');
       
       const redirectUrl = buildRedirectUrl(originUrl, successParams);
@@ -188,7 +238,6 @@ app.get('/callback', function(req, res) {
     }).catch(error => {
       console.error('Error during token exchange:', error.message);
       const errorParams = new URLSearchParams({ error: 'invalid_token' });
-      const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
       res.clearCookie('origin_url');
       
       const redirectUrl = buildRedirectUrl(originUrl, errorParams);
