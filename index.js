@@ -85,7 +85,11 @@ app.get('/login', function(req, res) {
   var state = generateRandomString(16);
   
   const originUrl = req.query.origin || 'http://localhost:8888';
-  const scope = req.query.scopes || 'user-read-private user-read-email';
+  // Ensure we always request the streaming scope required for Web Playback SDK
+  const scope = req.query.scopes || 'user-read-private user-read-email user-read-playback-state user-modify-playback-state streaming';
+
+  console.log('Login request - Origin:', originUrl);
+  console.log('Login request - Requested scopes:', scope);
 
   // Validate origin URL
   if (!isAllowedOrigin(originUrl)) {
@@ -97,6 +101,7 @@ app.get('/login', function(req, res) {
   }
   
   res.cookie('origin_url', originUrl);
+  res.cookie('requested_scopes', scope); // Store requested scopes for verification in callback
   res.cookie(stateKey, state);
   
   const params = new URLSearchParams({
@@ -106,7 +111,10 @@ app.get('/login', function(req, res) {
     redirect_uri: redirect_uri,
     state: state
   });
-  res.redirect('https://accounts.spotify.com/authorize?' + params.toString());
+  
+  const spotifyAuthUrl = 'https://accounts.spotify.com/authorize?' + params.toString();
+  console.log('Redirecting to Spotify auth:', spotifyAuthUrl);
+  res.redirect(spotifyAuthUrl);
 });
 
 app.get('/callback', function(req, res) {
@@ -120,11 +128,18 @@ app.get('/callback', function(req, res) {
     const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
     res.clearCookie(stateKey);
     res.clearCookie('origin_url');
+    res.clearCookie('requested_scopes');
     
     const redirectUrl = buildRedirectUrl(originUrl, errorParams);
     res.redirect(redirectUrl);
   } else {
     res.clearCookie(stateKey);
+    const requestedScopes = req.cookies ? req.cookies['requested_scopes'] : null;
+    
+    if (requestedScopes) {
+      console.log('Requested scopes from cookie:', requestedScopes);
+    }
+    
     const formData = new URLSearchParams({
       code: code,
       redirect_uri: redirect_uri,
@@ -142,31 +157,39 @@ app.get('/callback', function(req, res) {
       const body = response.data;
       const access_token = body.access_token;
       const refresh_token = body.refresh_token;
+      const expires_in = body.expires_in; // Spotify returns this in seconds
+
+      console.log('Token exchange successful');
+      console.log('Access token expires in:', expires_in, 'seconds');
 
       axios.get('https://api.spotify.com/v1/me', {
         headers: { 'Authorization': 'Bearer ' + access_token }
       }).then(userResponse => {
-        console.log(userResponse.data);
+        console.log('User authenticated:', userResponse.data.display_name || userResponse.data.id);
       }).catch(err => {
         console.error('Error fetching user data:', err.message);
       });
 
       const successParams = new URLSearchParams({
         access_token: access_token,
-        refresh_token: refresh_token
+        refresh_token: refresh_token,
+        expires_in: expires_in // Include expires_in so client can schedule refresh
       });
       
       // Get the origin URL from cookies
       const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
       res.clearCookie('origin_url');
+      res.clearCookie('requested_scopes');
       
       const redirectUrl = buildRedirectUrl(originUrl, successParams);
+      console.log('Redirecting to:', redirectUrl.substring(0, 100) + '...');
       res.redirect(redirectUrl);
     }).catch(error => {
       console.error('Error during token exchange:', error.message);
       const errorParams = new URLSearchParams({ error: 'invalid_token' });
       const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
       res.clearCookie('origin_url');
+      res.clearCookie('requested_scopes');
       
       const redirectUrl = buildRedirectUrl(originUrl, errorParams);
       res.redirect(redirectUrl);
@@ -177,6 +200,16 @@ app.get('/callback', function(req, res) {
 app.get('/refresh_token', function(req, res) {
 
   const refresh_token = req.query.refresh_token;
+  
+  if (!refresh_token) {
+    return res.status(400).send({
+      error: 'missing_refresh_token',
+      message: 'Refresh token is required'
+    });
+  }
+
+  console.log('Refreshing access token...');
+  
   const formData = new URLSearchParams({
     grant_type: 'refresh_token',
     refresh_token: refresh_token
@@ -192,15 +225,37 @@ app.get('/refresh_token', function(req, res) {
   }).then(response => {
     const body = response.data;
     const access_token = body.access_token;
-    res.send({
-      'access_token': access_token
-    });
+    const new_refresh_token = body.refresh_token; // Spotify may return a new refresh token
+    const expires_in = body.expires_in;
+
+    console.log('Token refresh successful, expires in:', expires_in, 'seconds');
+
+    const responseData = {
+      'access_token': access_token,
+      'expires_in': expires_in
+    };
+
+    // Include new refresh token if Spotify provided one
+    if (new_refresh_token) {
+      responseData.refresh_token = new_refresh_token;
+      console.log('New refresh token provided by Spotify');
+    }
+
+    res.send(responseData);
   }).catch(error => {
-    console.error('Error refreshing token:', error.message);
+    console.error('Error refreshing token:', error.response?.data || error.message);
     res.status(400).send({
-      error: 'invalid_grant'
+      error: 'invalid_grant',
+      message: 'Failed to refresh token'
     });
   });
+});
+
+// Alias for /refresh_token endpoint (for backwards compatibility)
+app.get('/refresh', function(req, res) {
+  // Forward to /refresh_token endpoint
+  req.url = '/refresh_token';
+  return app._router.handle(req, res, () => {});
 });
 
 const PORT = process.env.PORT || 5000;
