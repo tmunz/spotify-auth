@@ -1,223 +1,21 @@
 # Deployment Guide
 
-This guide covers deploying your Spotify Authentication Server to various cloud platforms.
+This guide covers deploying your Spotify Authentication Server to Vercel.
 
-## Platform-Specific Deployment
+## Vercel Deployment
 
-### 1. Heroku
+Vercel provides seamless deployment with GitHub integration and automatic HTTPS.
 
-**Quick Deploy Button:**
-```markdown
-[![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy)
-```
+### Quick Deploy
 
-**Manual Deployment:**
-```bash
-# Install Heroku CLI and login
-heroku login
+The easiest way to deploy is by connecting your GitHub repository to Vercel:
 
-# Create app
-heroku create your-spotify-auth-server
+1. **Go to [vercel.com](https://vercel.com)** and sign in with GitHub
+2. **Click "Add New Project"** and import your repository
+3. **Configure environment variables** (see below)
+4. **Deploy!** - Vercel will automatically deploy on every push to main
 
-# Set environment variables
-heroku config:set CLIENT_ID=your_client_id
-heroku config:set CLIENT_SECRET=your_client_secret
-heroku config:set REDIRECT_URI=https://your-spotify-auth-server.herokuapp.com/callback
-
-# Deploy
-git push heroku main
-```
-
-### 2. Railway
-
-```bash
-# Install Railway CLI
-npm install -g @railway/cli
-
-# Login and deploy
-railway login
-railway init
-railway up
-
-# Set environment variables in Railway dashboard or CLI
-railway variables set CLIENT_ID=your_client_id
-railway variables set CLIENT_SECRET=your_client_secret
-railway variables set REDIRECT_URI=https://your-app.railway.app/callback
-```
-
-### 3. GitLab CI/CD + Heroku
-
-Create `.gitlab-ci.yml`:
-```yaml
-stages:
-  - test
-  - deploy
-
-variables:
-  NODE_VERSION: "18"
-
-test:
-  stage: test
-  image: node:18
-  script:
-    - npm ci
-    - npm test
-  only:
-    - merge_requests
-    - main
-
-deploy_heroku:
-  stage: deploy
-  image: ruby:latest
-  before_script:
-    - apt-get update -qy
-    - apt-get install -y ruby-dev
-    - gem install dpl
-  script:
-    - dpl --provider=heroku --app=$HEROKU_APP_NAME --api-key=$HEROKU_API_KEY
-  environment:
-    name: production
-    url: https://$HEROKU_APP_NAME.herokuapp.com
-  only:
-    - main
-```
-
-**GitLab Variables to set:**
-- `HEROKU_API_KEY` - Your Heroku API key
-- `HEROKU_APP_NAME` - Your Heroku app name
-- `SPOTIFY_CLIENT_ID` - Your Spotify client ID
-- `SPOTIFY_CLIENT_SECRET` - Your Spotify client secret
-- `SPOTIFY_REDIRECT_URI` - Your production callback URL
-
-### 4. GitLab CI/CD + Railway
-
-Create `.gitlab-ci.yml`:
-```yaml
-stages:
-  - test
-  - deploy
-
-test:
-  stage: test
-  image: node:18
-  script:
-    - npm ci
-    - npm test
-  only:
-    - merge_requests
-    - main
-
-deploy_railway:
-  stage: deploy
-  image: node:18
-  before_script:
-    - npm install -g @railway/cli
-  script:
-    - railway login --token $RAILWAY_TOKEN
-    - railway up --service $RAILWAY_SERVICE_ID
-  environment:
-    name: production
-  only:
-    - main
-```
-
-**GitLab Variables:**
-- `RAILWAY_TOKEN` - Railway API token
-- `RAILWAY_SERVICE_ID` - Your Railway service ID
-
-### 5. GitLab CI/CD + DigitalOcean App Platform
-
-Create `.gitlab-ci.yml`:
-```yaml
-stages:
-  - test
-  - deploy
-
-deploy_digitalocean:
-  stage: deploy
-  image: digitalocean/doctl:latest
-  before_script:
-    - doctl auth init --access-token $DO_ACCESS_TOKEN
-  script:
-    - doctl apps create-deployment $DO_APP_ID
-  environment:
-    name: production
-  only:
-    - main
-```
-
-### 6. GitLab CI/CD + Custom Server (Docker)
-
-Create `Dockerfile`:
-```dockerfile
-FROM node:18-alpine
-
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm ci --only=production
-
-COPY . .
-
-EXPOSE 5000
-
-USER node
-
-CMD ["npm", "start"]
-```
-
-Create `.gitlab-ci.yml`:
-```yaml
-stages:
-  - build
-  - test
-  - deploy
-
-variables:
-  DOCKER_DRIVER: overlay2
-  DOCKER_TLS_CERTDIR: "/certs"
-
-services:
-  - docker:dind
-
-before_script:
-  - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-
-build:
-  stage: build
-  script:
-    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA .
-    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
-
-test:
-  stage: test
-  image: node:18
-  script:
-    - npm ci
-    - npm test
-
-deploy:
-  stage: deploy
-  script:
-    - docker pull $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
-    - docker tag $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA $CI_REGISTRY_IMAGE:latest
-    - docker push $CI_REGISTRY_IMAGE:latest
-    # Deploy to your server via SSH
-    - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )'
-    - eval $(ssh-agent -s)
-    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
-    - mkdir -p ~/.ssh
-    - chmod 700 ~/.ssh
-    - ssh-keyscan $DEPLOY_HOST >> ~/.ssh/known_hosts
-    - chmod 644 ~/.ssh/known_hosts
-    - ssh $DEPLOY_USER@$DEPLOY_HOST "docker pull $CI_REGISTRY_IMAGE:latest && docker stop spotify-auth || true && docker rm spotify-auth || true && docker run -d --name spotify-auth -p 5000:5000 -e CLIENT_ID=$SPOTIFY_CLIENT_ID -e CLIENT_SECRET=$SPOTIFY_CLIENT_SECRET -e REDIRECT_URI=$SPOTIFY_REDIRECT_URI $CI_REGISTRY_IMAGE:latest"
-  environment:
-    name: production
-  only:
-    - main
-```
-
-### 7. Vercel
+### Manual Deployment via CLI
 
 ```bash
 # Install Vercel CLI
@@ -230,93 +28,68 @@ vercel
 vercel env add CLIENT_ID
 vercel env add CLIENT_SECRET
 vercel env add REDIRECT_URI
+vercel env add ALLOWED_ORIGINS
 
 # Redeploy with environment variables
 vercel --prod
 ```
 
-### 8. Netlify
-
-Create `netlify.toml`:
-```toml
-[build]
-  publish = "public"
-  command = "npm run build"
-
-[functions]
-  node_bundler = "nft"
-
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
-
-[build.environment]
-  NODE_VERSION = "18"
-```
-
-### 9. DigitalOcean App Platform
-
-Create `app.yaml`:
-```yaml
-name: spotify-auth-server
-services:
-- name: web
-  source_dir: /
-  github:
-    repo: your-username/spotify-auth
-    branch: main
-  run_command: npm start
-  environment_slug: node-js
-  instance_count: 1
-  instance_size_slug: basic-xxs
-  envs:
-  - key: CLIENT_ID
-    scope: RUN_TIME
-    type: SECRET
-  - key: CLIENT_SECRET
-    scope: RUN_TIME
-    type: SECRET
-  - key: REDIRECT_URI
-    scope: RUN_TIME
-    value: https://your-app.ondigitalocean.app/callback
-  routes:
-  - path: /
-```
-
 ## Environment Variables Setup
 
-Regardless of the platform, you'll need these environment variables:
+You need to configure these environment variables in your Vercel project settings:
 
 | Variable | Value | Note |
 |----------|-------|------|
 | `CLIENT_ID` | Your Spotify app's Client ID | From Spotify Developer Dashboard |
 | `CLIENT_SECRET` | Your Spotify app's Client Secret | Keep this secret! |
-| `REDIRECT_URI` | `https://your-domain.com/callback` | Must match Spotify app settings |
+| `REDIRECT_URI` | `https://your-project.vercel.app/callback` | Must match Spotify app settings |
+| `ALLOWED_ORIGINS` | `https://app1.com,https://app2.com` | Comma-separated list of allowed redirect origins. Defaults to `http://localhost:8888,http://localhost:3000` if not set |
 | `NODE_ENV` | `production` | Optional, for production mode |
+
+### Setting Environment Variables in Vercel Dashboard:
+
+1. Go to your project in Vercel
+2. Click **Settings** → **Environment Variables**
+3. Add each variable with its value
+4. Select the environments (Production, Preview, Development)
+5. Click **Save**
+
+### Getting Your Redirect URI:
+
+After deploying, your redirect URI will be:
+```
+https://your-project-name.vercel.app/callback
+```
+
+**Important:** Add this exact URL to your Spotify app's "Redirect URIs" in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
 
 ## Custom Domain Setup
 
-1. **Configure your domain DNS** to point to your hosting platform
-2. **Update REDIRECT_URI** to use your custom domain:
-   ```
-   https://auth.yourdomain.com/callback
-   ```
-3. **Update Spotify app settings** with the new redirect URI
+1. **Add custom domain in Vercel:**
+   - Go to **Settings** → **Domains**
+   - Add your domain (e.g., `auth.yourdomain.com`)
+   - Follow DNS configuration instructions
 
-## SSL/HTTPS Setup
+2. **Update environment variables:**
+   - Update `REDIRECT_URI` to `https://auth.yourdomain.com/callback`
+   - Update `ALLOWED_ORIGINS` to include your production app URLs
 
-Most platforms provide automatic HTTPS. For custom setups:
+3. **Update Spotify app settings:**
+   - Add the new redirect URI to your Spotify app settings
 
-1. Obtain SSL certificate (Let's Encrypt, Cloudflare, etc.)
-2. Configure your web server to use HTTPS
-3. Ensure REDIRECT_URI uses `https://`
+## Automatic Deployments
+
+Vercel automatically deploys your application:
+
+- **Production deployments**: Every push to your `main` branch
+- **Preview deployments**: Every push to other branches or pull requests
+- **Instant rollbacks**: Easily revert to previous deployments
 
 ## Monitoring and Health Checks
 
 Use the built-in health check endpoint:
 ```bash
-curl https://your-app.com/health
+curl https://your-project.vercel.app/health
 ```
 
 Response:
@@ -333,42 +106,49 @@ Response:
 ### Common Issues:
 
 1. **"Invalid redirect URI"**
-   - Check Spotify app settings match your REDIRECT_URI exactly
-   - Ensure protocol (http/https) matches
+   - Check that your Spotify app settings include the exact redirect URI
+   - Ensure you're using `https://` (Vercel provides this automatically)
+   - Format should be: `https://your-project.vercel.app/callback`
 
 2. **"Missing environment variables"**
-   - Verify all required env vars are set on your platform
+   - Verify all required environment variables are set in Vercel dashboard
    - Check for typos in variable names
+   - Redeploy after adding environment variables
 
-3. **CORS errors**
-   - Server includes CORS headers by default
-   - Check if your client domain is causing issues
+3. **"Origin not allowed" (403 error)**
+   - Add your app's URL to the `ALLOWED_ORIGINS` environment variable
+   - Format: `https://app1.com,https://app2.com` (comma-separated, no spaces)
+   - Remember to redeploy after updating environment variables
 
-4. **502/503 errors**
-   - Check if the app is properly started
-   - Verify PORT environment variable if required
+4. **CORS errors**
+   - The server includes CORS headers by default
+   - Ensure your app URL is in `ALLOWED_ORIGINS`
 
 ### Debugging:
 
-1. Check platform logs
-2. Test health endpoint
-3. Verify environment variables
-4. Test locally with same settings
+1. **Check Vercel logs**: Go to your project → Deployments → select deployment → Runtime Logs
+2. **Test health endpoint**: `curl https://your-project.vercel.app/health`
+3. **Verify environment variables**: Check Settings → Environment Variables
+4. **Test locally first**: Run with the same environment variables locally
 
-## Security Considerations
+## Security Best Practices
 
-1. **Never commit secrets** to version control
-2. **Use HTTPS** in production
-3. **Rotate secrets** regularly
-4. **Monitor access logs** for suspicious activity
-5. **Use environment-specific configs**
+1. **Never commit secrets** to version control (use `.env` locally, never commit `.env` file)
+2. **Use Vercel's environment variables** for all sensitive data
+3. **Rotate secrets regularly** in both Spotify dashboard and Vercel settings
+4. **Limit ALLOWED_ORIGINS** to only your actual app domains
+5. **Monitor deployment logs** for suspicious activity
+6. **Use different Spotify apps** for development and production
 
-## Scaling
+## Performance and Scaling
 
-For high-traffic applications:
+Vercel automatically handles:
 
-1. **Enable auto-scaling** on your platform
-2. **Use CDN** for static assets
-3. **Implement rate limiting**
-4. **Add monitoring and alerting**
-5. **Consider Redis** for session storage in multi-instance setups
+- **Global CDN**: Your auth server is distributed worldwide
+- **Auto-scaling**: Handles traffic spikes automatically
+- **Edge caching**: Static assets are cached at the edge
+- **Serverless architecture**: Pay only for what you use
+- **Zero-downtime deployments**: Seamless updates
+
+No additional configuration needed!
+````

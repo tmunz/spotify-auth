@@ -80,7 +80,10 @@ For automated deployment with environment variable management, the included GitH
 ## API Endpoints
 
 - `GET /` - Serves the main authentication page
-- `GET /login` - Initiates Spotify OAuth flow
+- `GET /login?origin=URL&hash=HASH&scopes=SCOPES` - Initiates Spotify OAuth flow with optional origin URL, hash, and custom scopes
+  - `origin` (optional) - The URL to redirect back to after authentication
+  - `hash` (optional) - Hash part of the URL to preserve (for hash-based routing)
+  - `scopes` (optional) - Comma-separated list of Spotify scopes (defaults to: `user-read-private user-read-email`)
 - `GET /callback` - Handles OAuth callback from Spotify
 - `GET /refresh_token?refresh_token=TOKEN` - Refreshes an access token
 - `GET /health` - Health check endpoint
@@ -88,6 +91,8 @@ For automated deployment with environment variable management, the included GitH
 ## Usage in Your Web App
 
 After deployment to Vercel, you can use this server from your web application:
+
+### Basic Usage
 
 ```javascript
 // Redirect user to login
@@ -99,6 +104,56 @@ const accessToken = urlParams.get('access_token');
 const refreshToken = urlParams.get('refresh_token');
 ```
 
+### With Hash-Based Routing (React Router HashRouter)
+
+If you're using hash-based routing, the hash part of your URL needs to be preserved during authentication:
+
+```javascript
+// Extract current location and hash
+const origin = window.location.origin + window.location.pathname; // e.g., http://localhost:8888/
+const hash = window.location.hash.substring(1); // e.g., /the-dark-side-of-the-moon
+
+// Redirect to login with origin and hash preserved
+window.location.href = `https://your-project.vercel.app/login?origin=${encodeURIComponent(origin)}&hash=${encodeURIComponent(hash)}`;
+
+// After authentication, user will be redirected back to: 
+// http://localhost:8888/#/the-dark-side-of-the-moon&access_token=...&refresh_token=...
+```
+
+### With Custom Scopes
+
+Request specific Spotify permissions by passing custom scopes:
+
+```javascript
+// Define the scopes you need
+const scopes = 'user-read-playback-state,user-modify-playback-state,streaming,user-library-read';
+
+// Redirect to login with custom scopes
+window.location.href = `https://your-project.vercel.app/login?scopes=${encodeURIComponent(scopes)}`;
+
+// Or combine with origin and hash
+const origin = window.location.origin + window.location.pathname;
+const hash = window.location.hash.substring(1);
+const authUrl = `https://your-project.vercel.app/login?origin=${encodeURIComponent(origin)}&hash=${encodeURIComponent(hash)}&scopes=${encodeURIComponent(scopes)}`;
+window.location.href = authUrl;
+```
+
+**Available Spotify Scopes:** See [Spotify Authorization Scopes](https://developer.spotify.com/documentation/web-api/concepts/scopes) for a full list.
+
+**Default Scopes (if not specified):**
+- `user-read-private` - Read user's subscription details
+- `user-read-email` - Read user's email address
+
+### Security: Allowed Origins
+
+For security, only URLs from allowed origins can be used for redirects. Configure allowed origins in your environment variables:
+
+```bash
+ALLOWED_ORIGINS=http://localhost:8888,http://localhost:3000,https://yourdomain.com
+```
+
+If not set, defaults to `http://localhost:8888` and `http://localhost:3000`.
+
 ## Environment Variables
 
 | Variable | Description | Required |
@@ -106,6 +161,7 @@ const refreshToken = urlParams.get('refresh_token');
 | `CLIENT_ID` | Spotify application client ID | Yes |
 | `CLIENT_SECRET` | Spotify application client secret | Yes |
 | `REDIRECT_URI` | OAuth callback URL | Yes |
+| `ALLOWED_ORIGINS` | Comma-separated list of allowed origin URLs for redirects | No |
 | `PORT` | Server port (default: 5000) | No |
 | `NODE_ENV` | Environment mode | No |
 

@@ -28,11 +28,23 @@ var client_id = process.env.CLIENT_ID;
 var client_secret = process.env.CLIENT_SECRET;
 var redirect_uri = process.env.REDIRECT_URI;
 
-/**
- * Generates a random string containing numbers and letters
- * @param  {number} length The length of the string
- * @return {string} The generated string
- */
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',').map(url => url.trim())
+  : ['http://localhost:8888', 'http://localhost:3000'];
+
+var isAllowedOrigin = function(url) {
+  try {
+    const urlObj = new URL(url);
+    const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
+    return ALLOWED_ORIGINS.some(allowed => {
+      const allowedObj = new URL(allowed);
+      return `${allowedObj.protocol}//${allowedObj.host}` === baseUrl;
+    });
+  } catch (e) {
+    return false;
+  }
+};
+
 var generateRandomString = function(length) {
   var text = '';
   var possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -41,6 +53,15 @@ var generateRandomString = function(length) {
     text += possible.charAt(Math.floor(Math.random() * possible.length));
   }
   return text;
+};
+
+var buildRedirectUrl = function(originUrl, originHash, params) {
+  const cleanOriginUrl = originUrl.replace(/\/$/, '');
+  if (originHash) {
+    return cleanOriginUrl + '/#' + originHash + '&' + params.toString();
+  } else {
+    return cleanOriginUrl + '/#' + params.toString();
+  }
 };
 
 var stateKey = 'spotify_auth_state';
@@ -68,10 +89,22 @@ app.get('/login', function(req, res) {
   var state = generateRandomString(16);
   
   const originUrl = req.query.origin || 'http://localhost:8888';
-  res.cookie('origin_url', originUrl);
-  res.cookie(stateKey, state);
+  const originHash = req.query.hash || '';
+  const scope = req.query.scopes || 'user-read-private user-read-email';
 
-  var scope = 'user-read-private user-read-email streaming user-read-playback-state user-modify-playback-state';
+  // Validate origin URL
+  if (!isAllowedOrigin(originUrl)) {
+    console.error('Unauthorized origin URL:', originUrl);
+    return res.status(403).json({ 
+      error: 'forbidden', 
+      message: 'Origin URL is not allowed' 
+    });
+  }
+  
+  res.cookie('origin_url', originUrl);
+  res.cookie('origin_hash', originHash);
+  res.cookie(stateKey, state);
+  
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: client_id,
@@ -124,16 +157,24 @@ app.get('/callback', function(req, res) {
         refresh_token: refresh_token
       });
       
-      // Get the origin URL from cookies
+      // Get the origin URL and hash from cookies
       const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
+      const originHash = req.cookies ? req.cookies['origin_hash'] : '';
       res.clearCookie('origin_url');
-      res.redirect(originUrl + '/#' + successParams.toString());
+      res.clearCookie('origin_hash');
+      
+      const redirectUrl = buildRedirectUrl(originUrl, originHash, successParams);
+      res.redirect(redirectUrl);
     }).catch(error => {
       console.error('Error during token exchange:', error.message);
       const errorParams = new URLSearchParams({ error: 'invalid_token' });
       const originUrl = req.cookies ? req.cookies['origin_url'] : 'http://localhost:3000';
+      const originHash = req.cookies ? req.cookies['origin_hash'] : '';
       res.clearCookie('origin_url');
-      res.redirect(originUrl + '/#' + errorParams.toString());
+      res.clearCookie('origin_hash');
+      
+      const redirectUrl = buildRedirectUrl(originUrl, originHash, errorParams);
+      res.redirect(redirectUrl);
     });
   }
 });
